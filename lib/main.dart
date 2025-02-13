@@ -1,9 +1,122 @@
-// ignore_for_file: library_private_types_in_public_api
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        Provider(
+          create: (context) => HttpClientNotifier(
+            baseUrl: "https://base-url",
+            client: http.Client(),
+          ),
+        ),
+        ChangeNotifierProxyProvider<HttpClientNotifier, UserProvider>(
+          create: (context) =>
+              UserProvider(client: context.read<HttpClientNotifier>()),
+          update: (_, httpClientNotifier, userProvider) => UserProvider(
+            client: httpClientNotifier,
+          ),
+        ),
+      ],
+      child: const MyApp(),
+    ),
+  );
+}
+
+class UserProvider extends ChangeNotifier {
+  final HttpClientNotifier client;
+  UserProvider({required this.client});
+
+  User? _user;
+  User? get user => _user;
+  bool isLoading = false;
+  String? errorMessage;
+
+  getUser() async {
+    isLoading = true;
+    notifyListeners();
+    try {
+      _user = await client.get("/", (json) => User.fromJson(json)) ?? null;
+    } catch (err) {
+      print(err);
+      errorMessage = "Gagal mendapatkan data User";
+    }
+    isLoading = false;
+    notifyListeners();
+  }
+}
+
+class User {
+  final String id;
+  final String username;
+
+  User({required this.id, required this.username});
+  User.fromJson(Map<String, dynamic> json)
+      : id = json["id"],
+        username = json["username"];
+}
+
+class HttpClientNotifier extends ChangeNotifier {
+  final String baseUrl;
+  final http.Client client;
+  HttpClientNotifier({required this.client, required this.baseUrl});
+
+  Uri parseUri(String url) {
+    return Uri.parse("$baseUrl$url");
+  }
+
+  Future<T?> get<T>(
+    String url,
+    T Function(Map<String, dynamic>) fromJson,
+  ) async {
+    try {
+      Uri uri = parseUri(url);
+      http.Response response = await client.get(uri);
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonData = jsonDecode(response.body);
+        return fromJson(jsonData);
+      } else {
+        debugPrint("❌ Error: ${response.statusCode} - ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("❌ Exception: $e");
+      return null;
+    }
+  }
+
+  Future<T?> post<T>(
+    String url,
+    Map<String, dynamic> body,
+    T Function(Map<String, dynamic>) fromJson, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      Uri uri = parseUri(url);
+      headers ??= {"Content-Type": "application/json"};
+      http.Response response = await client.post(
+        uri,
+        headers: headers,
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final Map<String, dynamic> jsonData = jsonDecode(response.body);
+        return fromJson(jsonData);
+      } else {
+        debugPrint("❌ Error: ${response.statusCode} - ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("❌ Exception: $e");
+      return null;
+    }
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -17,7 +130,63 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const PaddingExample(),
+      home: const ScaffoldExample(),
+    );
+  }
+}
+
+class ScaffoldExample extends StatefulWidget {
+  const ScaffoldExample({super.key});
+
+  @override
+  State<ScaffoldExample> createState() => _ScaffoldExampleState();
+}
+
+class _ScaffoldExampleState extends State<ScaffoldExample> {
+  int _selectedIndex = 0;
+
+  static final List<Widget> _pages = [
+    const Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
+    const Center(child: Text('Search Page', style: TextStyle(fontSize: 24))),
+    const Center(child: Text('Profile Page', style: TextStyle(fontSize: 24))),
+  ];
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Title Appbar"),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => print("floating action button onpress"),
+        child: const Icon(
+          Icons.add,
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.search),
+            label: 'Search',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
     );
   }
 }
